@@ -187,9 +187,6 @@ int main(void)
     LoRa_Protocol_ProcessIncoming(&protocol);
     
     // 2. INVIO DA SERIALE / BLE (framed packets)
-    // Il BLE (AT-09) ha MTU=20 byte: spezza i messaggi in chunk da 20B.
-    // uart_rx_buffer e uart_last_rx_tick sono PERSISTENTI tra i giri del loop,
-    // così l'accumulo sopravvive finché il messaggio è completo.
     {
         uint8_t inChar;
         // Leggi tutti i byte disponibili ora (non bloccante: timeout 1ms)
@@ -216,8 +213,6 @@ int main(void)
                 }
             }
         }
-        // Timeout 200ms: nessun byte nuovo ma buffer non vuoto
-        // → messaggio completo (BLE non manda '\n', aspetta silenzio)
         if (uart_rx_index > 0 &&
             uart_last_rx_tick > 0 &&
             (HAL_GetTick() - uart_last_rx_tick) > 200) {

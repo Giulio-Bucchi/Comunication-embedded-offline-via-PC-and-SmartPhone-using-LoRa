@@ -16,7 +16,7 @@ String inputBLE = "";
 String lastSentMsg = "";
 
 unsigned long lastBleRead = 0;
-const int bleTimeout = 50; // Timeout ridotto per tagliare i doppioni velocemente
+const int bleTimeout = 50;
 
 void setup() {
   Serial.begin(115200); 
@@ -33,7 +33,7 @@ void setup() {
 
 
 void loop() {
-  // 1. RICEZIONE DA IPHONE (BLE)
+  // 1.(BLE)
   while (ble.available() > 0) {
     char c = (char)ble.read();
     
@@ -50,7 +50,7 @@ void loop() {
         String firstHalf = inputBLE.substring(0, mid);
         String secondHalf = inputBLE.substring(mid);
         if (firstHalf == secondHalf) {
-            inputBLE = firstHalf; // Rimuovi il duplicato istantaneo
+            inputBLE = firstHalf; // Remove duplicated part
         }
     }
   }
@@ -65,8 +65,8 @@ void loop() {
 void processAndSend() {
   inputBLE.trim();
   
-  // Filtro definitivo: se il messaggio è vuoto o è un duplicato esatto dell'ultimo inviato 
-  // negli ultimi 500ms, ignoralo.
+  // if the message is the same as the last sent one and it was sent less than 500ms ago, ignore it.
+  // This is to prevent sending the same message multiple times due to BLE duplicates.
   if (inputBLE.length() > 0 && inputBLE != lastSentMsg) {
     Serial.print("Invio a STM32 (Filtrato): ");
     Serial.println(inputBLE);
@@ -91,7 +91,7 @@ void sendLoRaPacket(String text) {
   LoRa.print(text);
   LoRa.endPacket();
   
-  delay(30); // Tempo di "respiro" per la radio
+  delay(30); // Radio "breathing" time
 }
 
 void checkLoRa() {
@@ -109,10 +109,10 @@ void checkLoRa() {
       for(int i=0; i<len; i++) {
         char c = (char)buf[5+i];
         Serial.print(c);
-        ble.print(c); // Manda all'iPhone
+        ble.print(c); // Send to iPhone
       }
       Serial.println();
-      ble.println(); // Newline per iPhone
+      ble.println(); // Newline for iPhone
     }
   }
 }

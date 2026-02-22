@@ -363,26 +363,26 @@ int SX127x_ParsePacket(SX127x_t *lora)
 {
     uint8_t irqFlags = SX127x_ReadRegister(lora, REG_IRQ_FLAGS);
 
-    // Pulisci tutti i flag IRQ subito
+    // Clear all IRQ flags immediately
     SX127x_WriteRegister(lora, REG_IRQ_FLAGS, 0xFF);
 
     if ((irqFlags & IRQ_RX_DONE_MASK) && !(irqFlags & IRQ_PAYLOAD_CRC_ERROR_MASK)) {
         _packetIndex = 0;
 
-        // Salva la lunghezza ORA, prima di cambiare modalità operativa
+        // Save the length NOW, before changing operating mode
         _packetLength = SX127x_ReadRegister(lora, REG_RX_NB_BYTES);
 
-        // Punta FIFO_ADDR_PTR all'inizio del pacchetto ricevuto
+        // Point FIFO_ADDR_PTR to the beginning of the received packet
         SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR,
                              SX127x_ReadRegister(lora, REG_FIFO_RX_CURRENT_ADDR));
 
-        // NON chiamare Idle/Sleep qui: il FIFO è accessibile in RX continuous
-        // Il cambio di modo azzera REG_RX_NB_BYTES e corrompe la lettura
+        // DO NOT call Idle/Sleep here: the FIFO is accessible in RX continuous
+        // Changing mode resets REG_RX_NB_BYTES and corrupts the read
 
         return _packetLength;
 
     } else if ((SX127x_ReadRegister(lora, REG_OP_MODE) & 0x07) != MODE_RX_CONTINUOUS) {
-        // Non siamo in RX: ripristina
+        // Not in RX: restore
         SX127x_WriteRegister(lora, REG_FIFO_RX_BASE_ADDR, 0);
         SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR, 0);
         SX127x_WriteRegister(lora, REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS);
@@ -462,9 +462,9 @@ float SX127x_PacketSnr(SX127x_t *lora)
   */
 void SX127x_Receive(SX127x_t *lora)
 {
-    // Resetta i puntatori FIFO prima di entrare in RX
-    // (dopo una TX il puntatore è sporco e il prossimo pacchetto verrebbe
-    //  scritto in una posizione sbagliata nel FIFO da 256 byte)
+    // Reset base address and pointer in RX continuous mode, for safety
+    // (after a TX the pointer is dirty and the next packet would be
+    //  written in a wrong position in the 256-byte FIFO)
     SX127x_WriteRegister(lora, REG_FIFO_RX_BASE_ADDR, 0);
     SX127x_WriteRegister(lora, REG_FIFO_ADDR_PTR, 0);
     SX127x_WriteRegister(lora, REG_OP_MODE, MODE_LONG_RANGE_MODE | MODE_RX_CONTINUOUS);
