@@ -53,8 +53,7 @@ SX127x_t lora;
 LoRa_Protocol_t protocol;
 char uart_buf[256];
 char uart_rx_buffer[256];
-uint8_t uart_rx_index = 0;
-volatile bool uart_data_ready = false;
+volatile uint16_t uart_rx_index = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -77,9 +76,13 @@ void UART_Print(const char *msg) {
 
 // Callback when data is received from LoRa
 void OnDataReceived(char *msg, uint8_t len) {
-    UART_Print("Utente 1: ");
+    UART_Print("Utente 2: ");  // Fixed: Arduino is User 2
     UART_Print(msg);
     UART_Print("\r\n");
+    
+    // Debug info
+    snprintf(uart_buf, sizeof(uart_buf), "[DEBUG] Ricevuto %d byte via LoRa\r\n", len);
+    UART_Print(uart_buf);
 }
 
 // Callback when ACK is received (optional, silent)
@@ -123,8 +126,8 @@ int main(void)
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  // Small delay to let things stabilize
-  HAL_Delay(100);
+  // Longer delay for system and LoRa module to stabilize
+  HAL_Delay(500);
 
   // Simple test message
   const char *test_msg = "\r\n\r\n*** STM32 LoRa Chat System ***\r\n";
@@ -141,11 +144,11 @@ int main(void)
 
   UART_Print("Inizializzazione LoRa...\r\n");
 
-  // Proper reset sequence
+  // Proper reset sequence with longer delays
   HAL_GPIO_WritePin(lora.rst_port, lora.rst_pin, GPIO_PIN_RESET);
-  HAL_Delay(20);
+  HAL_Delay(50);  // Hold reset longer
   HAL_GPIO_WritePin(lora.rst_port, lora.rst_pin, GPIO_PIN_SET);
-  HAL_Delay(100);
+  HAL_Delay(200); // Wait longer for module to boot
 
   // Check version
   uint8_t version = SX127x_ReadRegister(&lora, REG_VERSION);
@@ -178,7 +181,7 @@ int main(void)
   protocol.ack_received_callback = OnAckReceived;
   
   UART_Print("\r\n=== SISTEMA PRONTO ===\r\n");
-  UART_Print("Scrivi un messaggio e premi INVIO per inviare.\r\n\r\n");
+  UART_Print("Digita un messaggio e premi INVIO.\r\n\r\n");
 
   // Start receiving
   SX127x_Receive(&lora);
@@ -188,47 +191,85 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   
-  // Enable UART receive interrupt for single byte
-  uint8_t uart_rx_byte;
-  HAL_UART_Receive_IT(&huart2, &uart_rx_byte, 1);
-  
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
     
-    // Process incoming LoRa packets
+    // 1. ASCOLTO DALLA RADIO (framed packets)
     LoRa_Protocol_ProcessIncoming(&protocol);
     
-    // Check for UART data (polling method as backup)
-    uint8_t byte;
-    if (HAL_UART_Receive(&huart2, &byte, 1, 10) == HAL_OK) {
-        if (byte == '\n' || byte == '\r') {
-            // End of line - send message if buffer not empty
-            if (uart_rx_index > 0) {
+    // 2. INVIO DA SERIALE (framed packets)
+    // Read bytes one by one in a tight loop to catch burst transmissions
+    uint8_t inChar;
+    uint32_t start_time = HAL_GetTick();
+    
+    // Try to read for up to 100ms to catch all bytes in a burst
+    while ((HAL_GetTick() - start_time) < 100) {
+        if (HAL_UART_Receive(&huart2, &inChar, 1, 1) == HAL_OK) {
+            // Got a byte
+            start_time = HAL_GetTick(); // Reset timer on each byte
+            
+            if (inChar == '\n' || inChar == '\r') {
+                if (uart_rx_index > 0) {
+                    // Null-terminate
+                    uart_rx_buffer[uart_rx_index] = '\0';
+                    
+                    // Debug
+                    snprintf(uart_buf, sizeof(uart_buf), "\r\n[DEBUG] Invio '%s' (%d byte) via LoRa\r\n", 
+                             uart_rx_buffer, uart_rx_index);
+                    UART_Print(uart_buf);
+                    
+                    // Send via LoRa
+                    bool sent = LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
+                    
+                    if (sent) {
+                        // Echo - STM32 is User 1
+                        UART_Print("Utente 1: ");
+                        UART_Print(uart_rx_buffer);
+                        UART_Print("\r\n\r\n");
+                    } else {
+                        UART_Print("[ERRORE] Invio fallito\r\n\r\n");
+                    }
+                    
+                    // Reset buffer
+                    uart_rx_index = 0;
+                    
+                    // Back to RX mode
+                    SX127x_Receive(&lora);
+                    break; // Exit read loop after sending
+                }
+            } else if (inChar >= 32 && inChar < 127) {
+                // Accumulate printable character
+                if (uart_rx_index < sizeof(uart_rx_buffer) - 1) {
+                    uart_rx_buffer[uart_rx_index++] = inChar;
+                }
+            }
+        } else {
+            // No byte available, check if we have data to send
+            if (uart_rx_index > 0 && (HAL_GetTick() - start_time) > 50) {
+                // 50ms timeout with partial data - might be missing newline
                 uart_rx_buffer[uart_rx_index] = '\0';
                 
-                // Send via LoRa to Arduino
+                snprintf(uart_buf, sizeof(uart_buf), "\r\n[DEBUG] Invio (timeout) '%s' (%d byte)\r\n", 
+                         uart_rx_buffer, uart_rx_index);
+                UART_Print(uart_buf);
+                
                 LoRa_Protocol_SendData(&protocol, ADDR_ARDUINO, uart_rx_buffer);
                 
-                // Echo to local UART
-                UART_Print("Utente 2: ");
+                UART_Print("Utente 1: ");
                 UART_Print(uart_rx_buffer);
-                UART_Print("\r\n");
+                UART_Print("\r\n\r\n");
                 
-                // Reset buffer
                 uart_rx_index = 0;
-            }
-        } else if (byte >= 32 && byte < 127) {
-            // Printable ASCII character
-            if (uart_rx_index < sizeof(uart_rx_buffer) - 1) {
-                uart_rx_buffer[uart_rx_index++] = byte;
+                SX127x_Receive(&lora);
+                break;
             }
         }
     }
     
-    // Small delay to avoid hogging CPU
+    // Small delay
     HAL_Delay(10);
   }
   /* USER CODE END 3 */

@@ -39,6 +39,10 @@ bool LoRa_Protocol_SendData(LoRa_Protocol_t *proto, uint8_t dst, const char *msg
         len = MAX_PAYLOAD_SIZE;
     }
     
+    if (len == 0) {
+        return false; // Don't send empty messages
+    }
+    
     // Build framed packet
     uint8_t packet[5 + len];
     packet[0] = dst;                    // Destination
@@ -52,6 +56,9 @@ bool LoRa_Protocol_SendData(LoRa_Protocol_t *proto, uint8_t dst, const char *msg
     SX127x_BeginPacket(proto->lora);
     SX127x_Write(proto->lora, packet, 5 + len);
     SX127x_EndPacket(proto->lora);
+    
+    // Put back in RX mode
+    SX127x_Receive(proto->lora);
     
     return true;
 }
@@ -82,6 +89,9 @@ bool LoRa_Protocol_SendAck(LoRa_Protocol_t *proto, uint8_t dst, uint8_t seq)
     SX127x_Write(proto->lora, ack, 5);
     SX127x_EndPacket(proto->lora);
     
+    // Put back in RX mode
+    SX127x_Receive(proto->lora);
+    
     return true;
 }
 
@@ -99,47 +109,46 @@ void LoRa_Protocol_ProcessIncoming(LoRa_Protocol_t *proto)
     int packetSize = SX127x_ParsePacket(proto->lora);
     
     if (packetSize > 0) {
-        // Read packet header
-        uint8_t header[5];
-        int idx = 0;
+        // Read entire packet into buffer first
+        uint8_t buffer[256];
+        int bytesRead = 0;
         
-        while (idx < 5 && SX127x_Available(proto->lora)) {
+        // Read all available bytes
+        while (SX127x_Available(proto->lora) && bytesRead < sizeof(buffer)) {
             int b = SX127x_Read(proto->lora);
             if (b != -1) {
-                header[idx++] = (uint8_t)b;
+                buffer[bytesRead++] = (uint8_t)b;
+            } else {
+                break;
             }
         }
         
-        // Check if we got a valid header
-        if (idx >= 5) {
-            uint8_t dst = header[0];
-            uint8_t src = header[1];
-            uint8_t type = header[2];
-            uint8_t seq = header[3];
-            uint8_t len = header[4];
+        // Check if we got at least a valid header (5 bytes)
+        if (bytesRead >= 5) {
+            uint8_t dst = buffer[0];
+            uint8_t src = buffer[1];
+            uint8_t type = buffer[2];
+            uint8_t seq = buffer[3];
+            uint8_t len = buffer[4];
             
             // Check if packet is for us
-            if (dst == ADDR_STM32 || dst == ADDR_ARDUINO) { // Accept both addresses for flexibility
+            if (dst == ADDR_STM32) {
                 
                 if (type == PKT_TYPE_DATA) {
-                    // Data packet - read payload
-                    uint8_t payload[MAX_PAYLOAD_SIZE + 1];
-                    int payloadRead = 0;
-                    
-                    while (payloadRead < len && payloadRead < MAX_PAYLOAD_SIZE && SX127x_Available(proto->lora)) {
-                        int b = SX127x_Read(proto->lora);
-                        if (b != -1) {
-                            payload[payloadRead++] = (uint8_t)b;
+                    // Data packet - extract payload
+                    if (bytesRead >= 5 + len) {
+                        uint8_t payload[MAX_PAYLOAD_SIZE + 1];
+                        int payloadLen = (len < MAX_PAYLOAD_SIZE) ? len : MAX_PAYLOAD_SIZE;
+                        memcpy(payload, &buffer[5], payloadLen);
+                        payload[payloadLen] = '\0'; // Null-terminate
+                        
+                        // Send ACK back to sender
+                        LoRa_Protocol_SendAck(proto, src, seq);
+                        
+                        // Call callback if registered
+                        if (proto->data_received_callback) {
+                            proto->data_received_callback((char*)payload, payloadLen);
                         }
-                    }
-                    payload[payloadRead] = '\0'; // Null-terminate
-                    
-                    // Send ACK back to sender
-                    LoRa_Protocol_SendAck(proto, src, seq);
-                    
-                    // Call callback if registered
-                    if (proto->data_received_callback) {
-                        proto->data_received_callback((char*)payload, payloadRead);
                     }
                     
                 } else if (type == PKT_TYPE_ACK) {
