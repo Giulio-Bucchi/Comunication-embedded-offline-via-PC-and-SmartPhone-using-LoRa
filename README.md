@@ -16,10 +16,15 @@ PC <-> STM32 <-> LoRa <-> Arduino <-> BLE <-> iPhone
 - **Zero-Network:** Fully offline operation—no internet or cellular required.
 - **Dual Interface:** Supports input from both Serial Monitor (PC) and Smartphone App.
 
+
 ## Hardware Connection Diagram
 
 - STM32 <-> LoRa module
 - Arduino <-> LoRa module and BLE module (AT-09)
+
+## Development Notes
+
+- The STM32 firmware is developed using **STM32CubeMX** and built with **CMake** for flexible and modern project management.
 
 ## Using with iPhone
 
