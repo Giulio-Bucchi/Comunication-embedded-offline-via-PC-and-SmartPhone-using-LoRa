@@ -34,6 +34,7 @@ PC <-> STM32 <-> LoRa <-> Arduino <-> BLE <-> iPhone
 #### STM32CubeMX Project Configuration
 ![STM32CubeMX Project](STM32_ioc.png)
 
+The project uses the default pin configuration. The main peripherals utilized are SPI2 and USART2, while the NSS, RST, and DIO0 pins are configured as GPIO outputs.
 
 ## Development Notes
 
