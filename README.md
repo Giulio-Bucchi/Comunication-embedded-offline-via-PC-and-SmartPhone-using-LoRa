@@ -1,5 +1,5 @@
 
-# AirChat: Mobile-to-Radio Bridge
+# Mobile-to-Radio Bridge
 
 **AirChat** is an offline communication bridge between iPhone/PC using LoRa and BLE.
 
